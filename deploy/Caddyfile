@@ -1,0 +1,32 @@
+# Two names, one backend. TLS certificates are issued automatically.
+#
+# Replace both hostnames before the first deploy — Caddy will try to get a
+# certificate for whatever is written here on startup.
+
+secondmind.yourdomain.com {
+	encode gzip
+
+	# Audio is never served. It exists only on the spool volume between
+	# upload and transcription, so there is deliberately no /media/ handler
+	# here — nothing in this system should be able to hand a recording back
+	# over HTTP.
+
+	reverse_proxy backend:8000
+
+	request_body {
+		# A long capture, generously. Matches MAX_CAPTURE_BYTES; Caddy's
+		# default 10MB would silently reject a long 4am ramble.
+		max_size 50MB
+	}
+}
+
+graph.yourdomain.com {
+	encode gzip
+
+	# The circles-and-lines view (Phase 4). Static files served from the
+	# same box; the page calls /api/graph/ on the host above with the same
+	# JWT.
+	root * /srv/graph
+	file_server
+	try_files {path} /index.html
+}

@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "Krono",
+    "slug": "secondmind",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0D10",
+    "scheme": "secondmind",
+    "android": {
+      "package": "com.badal.secondmind",
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1E135A"
+      }
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Krono records what you say so it can transcribe it and link it into your knowledge graph."
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-background-task",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Krono records what you say so it can transcribe it and link it into your knowledge graph."
+        }
+      ],
+      "expo-font",
+      "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "buildArchs": [
+              "arm64-v8a"
+            ],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "useLegacyPackaging": true,
+            "extraProguardRules": "# Loaded by name for headless JS (the background outbox drain); R8 cannot see the reference.\n-keep class expo.modules.adapters.react.apploader.** { *; }\n-keep class * implements expo.modules.apploader.HeadlessAppLoader { *; }"
+          }
+        }
+      ]
+    ],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "extra": {
+      "apiBase": "https://secondmind.37-27-192-44.sslip.io/api"
+    },
+    "icon": "./assets/icon.png"
+  }
+}

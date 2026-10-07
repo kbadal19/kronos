@@ -1,0 +1,20 @@
+# The site block to append to the host's existing Caddyfile when running
+# docker-compose.shared.yml (today: /opt/credence/deploy/Caddyfile, whose
+# local source is credenceProjs/masterflow/deploy/Caddyfile — keep both in
+# sync, or Credence's next deploy drops this block).
+#
+# sslip.io resolves the name to the IP inside it, so this gets a real TLS
+# certificate with no DNS setup. Swap in a real domain any time: change the
+# hostname here and ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS in backend/.env.
+
+secondmind.37-27-192-44.sslip.io {
+	encode gzip
+
+	# Audio is never served — there is deliberately no file handler here.
+	reverse_proxy secondmind-backend:8000
+
+	request_body {
+		# Matches MAX_CAPTURE_BYTES; Caddy's default would reject a long capture.
+		max_size 50MB
+	}
+}

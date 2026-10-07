@@ -1,0 +1,105 @@
+name: secondmind
+
+# For a server that already runs another project behind its own reverse
+# proxy (today: Credence's Caddy on 37.27.192.44, which owns 80/443).
+#
+# Differences from docker-compose.prod.yml:
+#   - No Caddy. The host's existing proxy gets one extra site block that
+#     forwards to `secondmind-backend:8000` — see Caddyfile.shared.
+#   - The backend also joins the proxy's network (PROXY_NETWORK) under that
+#     alias, so the proxy can reach it without publishing a port.
+#   - Postgres and Redis are addressed by unique aliases, never by service
+#     name. The backend sits on two networks, and on the proxy's network
+#     "postgres" is the *other* project's database.
+#   - Lighter: 2 gunicorn workers and 2 Celery threads, since the box is
+#     shared.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      default:
+        aliases: [secondmind-postgres]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      default:
+        aliases: [secondmind-redis]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/app/backend/docker-entrypoint.sh"]
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]
+    env_file: [../backend/.env]
+    environment: &internal
+      DB_HOST: secondmind-postgres
+      REDIS_URL: redis://secondmind-redis:6379/0
+    volumes:
+      - audio_spool:/app/backend/spool
+      # The APK served at /app/<token>/krono.apk; see publish_apk.sh.
+      - /opt/secondmind/downloads:/app/backend/downloads:ro
+    networks:
+      default:
+      proxy:
+        aliases: [secondmind-backend]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  celery_worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # Threads, not prefork — see docker-compose.prod.yml.
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "--pool=threads", "--concurrency=2"]
+    env_file: [../backend/.env]
+    environment: *internal
+    volumes:
+      - audio_spool:/app/backend/spool
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  celery_beat:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "beat", "--loglevel=info"]
+    env_file: [../backend/.env]
+    environment: *internal
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-credence_default}
+
+volumes:
+  postgres_data:
+  audio_spool:

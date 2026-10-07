@@ -1,0 +1,33 @@
+# Seed vocabulary for keyterm biasing. Copy to entities.txt, make it
+# yours, then:  python manage.py seed_entities --user <you> entities.txt
+#
+# Worth ten minutes before your first capture: without these, the first
+# weeks of transcripts — the ones that become your eval set — are the
+# least accurate ones you will ever record.
+#
+# Format:  kind: Canonical Name | alias | alias
+# Kinds:   person company project concept technology resource place habit goal
+
+# --- work ---
+company: Credence Marketings | Credence
+project: masterflow | master flow
+project: Project CB | CB | the observability project
+concept: RCA | root cause analysis
+concept: observability
+concept: deployment correlation
+concept: log ingestion
+
+# --- stack ---
+technology: Django
+technology: PostgreSQL | Postgres
+technology: Celery
+technology: React Native
+technology: Expo
+technology: pgvector
+
+# --- personal ---
+habit: Gym
+goal: Second Mind
+
+# Add the names you actually say: people, clients, places, recurring
+# ideas. Anything the recognizer has no reason to know.

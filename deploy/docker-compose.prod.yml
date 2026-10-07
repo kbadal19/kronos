@@ -1,0 +1,106 @@
+name: secondmind
+
+# Production differences from the root docker-compose.yml:
+#   - Postgres and Redis publish no ports; only the compose network reaches
+#     them. This is a personal database of everything you think — it has no
+#     business being reachable from the internet.
+#   - Caddy terminates TLS in front of the backend.
+#   - The graph page is served as static files from a shared volume.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/app/backend/docker-entrypoint.sh"]
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+    env_file: [../backend/.env]
+    environment:
+      DB_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - audio_spool:/app/backend/spool
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  celery_worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # Threads, not prefork. These tasks are ~100% I/O wait on Deepgram and
+    # Gemini, so processes buy nothing and cost memory this box doesn't
+    # have. It also sidesteps a real prefork bug: celery's fast_trace_task
+    # reads a module global that only survives fork(), so the pool breaks
+    # outright under spawn (macOS local dev). Threads work on both.
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "--pool=threads", "--concurrency=4"]
+    env_file: [../backend/.env]
+    environment:
+      DB_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - audio_spool:/app/backend/spool
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  celery_beat:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "beat", "--loglevel=info"]
+    env_file: [../backend/.env]
+    environment:
+      DB_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - graph_static:/srv/graph:ro
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  audio_spool:
+  caddy_data:
+  caddy_config:
+  graph_static:

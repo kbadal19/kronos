@@ -1,0 +1,116 @@
+name: secondmind
+
+services:
+  postgres:
+    # pgvector/pgvector rather than postgres:16-alpine — the graph's
+    # embedding table needs the vector extension server-side, and the
+    # official Postgres image doesn't ship it.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-secondmind}
+      POSTGRES_USER: ${DB_USER:-secondmind}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secondmind}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-secondmind}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/app/backend/docker-entrypoint.sh"]
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+    env_file:
+      - backend/.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-secondmind}
+      DB_USER: ${DB_USER:-secondmind}
+      DB_PASSWORD: ${DB_PASSWORD:-secondmind}
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Audio lands here on upload and is unlinked the moment the raw
+      # transcript commits (see pipeline/tasks.py). A volume rather than
+      # container-local disk only so a crashed container doesn't strand
+      # a capture that never got transcribed.
+      - audio_spool:/app/backend/spool
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # No entrypoint override — only `backend` runs migrations on startup.
+    # Threads, not prefork: these tasks just wait on Deepgram and Gemini,
+    # and celery's prefork pool is broken under spawn (see README gotchas).
+    command: ["celery", "-A", "config", "worker", "--loglevel=info", "--pool=threads", "--concurrency=4"]
+    env_file:
+      - backend/.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-secondmind}
+      DB_USER: ${DB_USER:-secondmind}
+      DB_PASSWORD: ${DB_PASSWORD:-secondmind}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - audio_spool:/app/backend/spool
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # Drives the nightly consolidation job and the orphaned-audio sweep.
+    command: ["celery", "-A", "config", "beat", "--loglevel=info"]
+    env_file:
+      - backend/.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-secondmind}
+      DB_USER: ${DB_USER:-secondmind}
+      DB_PASSWORD: ${DB_PASSWORD:-secondmind}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  audio_spool:

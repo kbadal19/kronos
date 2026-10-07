@@ -1,0 +1,27 @@
+*.pyc
+__pycache__/
+venv/
+.venv/
+
+# Every secret in this project lives here.
+.env
+backend/.env
+
+# Audio spool — transient by design, and the one thing that should never
+# reach a remote.
+backend/spool/
+backend/media/
+backend/staticfiles/
+
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
+
+# Backup artefacts, in case a dump is ever run from the repo directory.
+*.dump
+*.sql.age
+
+# Personal knowledge seed (people, clients, opinions). Loaded over stdin;
+# never committed, never rsynced.
+backend/knowledge/

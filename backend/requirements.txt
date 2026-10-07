@@ -1,0 +1,31 @@
+Django==6.0.7
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+django-cors-headers==4.9.0
+django-redis==7.0.0
+psycopg2-binary==2.9.12
+celery==5.6.3
+redis==8.1.0
+gunicorn==26.2.0
+httpx==0.28.1
+google-genai==2.14.0
+python-dotenv==1.2.2
+tenacity==9.1.4
+
+# Per-note entity retrieval (pipeline/retrieval.py): fuzzy and phonetic
+# matching in C, and Devanagari -> Latin so Hindi in a draft can match
+# names typed in English.
+rapidfuzz==3.14.6
+indic-transliteration==2.3.82
+
+# pgvector's Django integration (VectorField/HalfVectorField + the
+# CreateExtension migration operation). Pairs with the pgvector/pgvector
+# Postgres image in docker-compose.yml — the Python package alone does
+# nothing without the server-side extension.
+pgvector==0.4.1
+
+# Optional, installed separately if wanted (settings.py feature-detects
+# both, same idiom as masterflow):
+#   whitenoise           — serves admin CSS/JS from gunicorn when DEBUG=False
+#   sentry-sdk[django]   — a 4am capture failing silently is the one bug
+#                          you'd never notice on your own
