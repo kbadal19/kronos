@@ -29,10 +29,16 @@ import { AppState, Pressable, StyleSheet, Switch, Text, View } from "react-nativ
 
 import { drain, enqueue, pendingCount } from "../outbox";
 import { MIN_CAPTURE_SECONDS, VOICE_RECORDING, formatDuration } from "../recorder";
+import { micHeld } from "../voice";
 import { colors, radius, space, type } from "../theme";
 import { Pill } from "../ui";
 
 const KEEP_AWAKE_TAG = "secondmind-recording";
+
+/** What the rest of the app may do to a recording in progress: save it
+ *  (the usual rules — too short is dropped) before Ask or Teach take the
+ *  mic. Saving, never discarding: it may be a thought. */
+export type CaptureControl = { save: () => Promise<void> };
 
 type Props = {
   autoStart: boolean;
@@ -43,6 +49,7 @@ type Props = {
    *  glanced away would be worse — but it must never be invisible, or
    *  you come back to a ten-minute recording of a quiet room. */
   onRecordingChange: (recording: boolean) => void;
+  control?: React.MutableRefObject<CaptureControl | null>;
 };
 
 export default function CaptureScreen({
@@ -50,6 +57,7 @@ export default function CaptureScreen({
   onAutoStartChange,
   onSaved,
   onRecordingChange,
+  control,
 }: Props) {
   const recorder = useAudioRecorder(VOICE_RECORDING);
   const state = useAudioRecorderState(recorder, 200);
@@ -104,7 +112,9 @@ export default function CaptureScreen({
   }, [refreshQueue]);
 
   const start = useCallback(async () => {
-    if (permission !== "granted" || state.isRecording || starting.current) return;
+    // micHeld: Ask or Teach is listening. Coming back to the foreground
+    // mid-question must not open a second recorder over it.
+    if (permission !== "granted" || state.isRecording || starting.current || micHeld()) return;
     starting.current = true;
     try {
       await recorder.prepareToRecordAsync(VOICE_RECORDING);
@@ -149,6 +159,8 @@ export default function CaptureScreen({
     },
     [onSaved, recorder, refreshQueue, state.durationMillis, state.isRecording]
   );
+
+  if (control) control.current = { save: () => finish(true) };
 
   // Auto-start on mount and whenever the app comes back to the foreground —
   // and only then. `start` is recreated every time recording stops, so it

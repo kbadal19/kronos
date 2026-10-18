@@ -8,7 +8,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -135,34 +136,33 @@ def correction_detail(request, pk):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def ask_question(request):
-    """Answer a question from your notes and knowledge base. Synchronous —
-    one planning call and one answering call, a few seconds."""
+def _conversation_id(request):
+    """(uuid or None, error Response or None)."""
+    import uuid
+
+    raw = request.data.get("conversation_id") or None
+    if not raw:
+        return None, None
+    try:
+        return uuid.UUID(str(raw)), None
+    except ValueError:
+        return None, Response({"detail": "Bad conversation_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _answer(user, question, conversation_id, spoken=False):
     from django.utils import timezone
 
     from .ask import AskError, ask
 
-    question = (request.data.get("question") or "").strip() if isinstance(request.data, dict) else ""
-    if not question:
-        return Response({"detail": "Ask something."}, status=status.HTTP_400_BAD_REQUEST)
-    if len(question) > 1000:
-        return Response({"detail": "Keep it under 1000 characters."}, status=status.HTTP_400_BAD_REQUEST)
-
-    conversation_id = request.data.get("conversation_id") or None
-    if conversation_id:
-        import uuid
-
-        try:
-            conversation_id = uuid.UUID(str(conversation_id))
-        except ValueError:
-            return Response({"detail": "Bad conversation_id."}, status=status.HTTP_400_BAD_REQUEST)
-
     try:
-        result = ask(request.user, question, conversation_id)
+        result = ask(user, question, conversation_id, spoken=spoken)
     except AskError as exc:
-        return Response({"detail": f"Couldn't answer right now — {exc}"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        # The question goes back too: when it was spoken, it's the only
+        # place the app learns what was heard.
+        return Response(
+            {"detail": f"Couldn't answer right now — {exc}", "question": question},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     def snippet(capture):
         shown = capture.display_transcript()
@@ -172,6 +172,7 @@ def ask_question(request):
     return Response({
         "id": result.question_id,
         "conversation_id": result.conversation_id,
+        "question": question,
         "answer": result.answer,
         "sources": [
             {
@@ -184,6 +185,59 @@ def ask_question(request):
         ],
         "entities": [{"id": str(e.id), "title": e.title, "kind": e.kind, "summary": e.summary} for e in result.entities],
     })
+
+
+def _clip(request, purpose):
+    """(ClipResult, None) for the uploaded `audio`, or (None, error Response)."""
+    from .spoken import MAX_CLIP_BYTES, ClipError, EmptyClip, transcribe_clip
+
+    audio = request.FILES.get("audio")
+    if audio is None:
+        return None, Response({"detail": "No audio."}, status=status.HTTP_400_BAD_REQUEST)
+    if audio.size > MAX_CLIP_BYTES:
+        return None, Response({"detail": "Too long — keep it under a few minutes."},
+                              status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+    try:
+        return transcribe_clip(request.user.id, audio.read(), audio.name, purpose), None
+    except EmptyClip:
+        return None, Response({"detail": "Didn't catch that — try again."},
+                              status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    except ClipError as exc:
+        return None, Response({"detail": f"Couldn't hear it right now — {exc}"},
+                              status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ask_question(request):
+    """Answer a question from your notes and knowledge base. Synchronous —
+    one planning call and one answering call, a few seconds."""
+    question = (request.data.get("question") or "").strip() if isinstance(request.data, dict) else ""
+    if not question:
+        return Response({"detail": "Ask something."}, status=status.HTTP_400_BAD_REQUEST)
+    if len(question) > 1000:
+        return Response({"detail": "Keep it under 1000 characters."}, status=status.HTTP_400_BAD_REQUEST)
+
+    conversation_id, error = _conversation_id(request)
+    if error:
+        return error
+    return _answer(request.user, question, conversation_id)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def ask_spoken(request):
+    """The same, asked out loud: `audio` (and optionally `conversation_id`)
+    as multipart. Heard and answered in one request, so the phone makes one
+    round trip; the response's `question` is what was heard."""
+    conversation_id, error = _conversation_id(request)
+    if error:
+        return error
+    heard, error = _clip(request, "question")
+    if error:
+        return error
+    return _answer(request.user, heard.text[:1000], conversation_id, spoken=True)
 
 
 # --- Knowledge: browse, inspect, correct ------------------------------------
@@ -313,3 +367,59 @@ def knowledge_link(request, pk, other):
         Q(from_node=node, to_node=target) | Q(from_node=target, to_node=node)
     ).delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --- Teaching by voice --------------------------------------------------------
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def knowledge_teach(request):
+    """Tell Krono something to remember: `audio` as multipart. Returns what
+    was heard and the changes it would make — nothing is saved to the
+    knowledge base until you apply them."""
+    from .models import Teaching
+    from .teach import TeachError, propose
+
+    heard, error = _clip(request, "teach")
+    if error:
+        return error
+    try:
+        changes, model = propose(request.user, heard.text)
+    except TeachError as exc:
+        return Response(
+            {"detail": f"Couldn't work that out right now — {exc}", "transcript": heard.text},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    teaching = Teaching.objects.create(
+        user=request.user, transcript=heard.text, heard_by=heard.via, proposed=changes, model=model,
+    )
+    return Response({"id": str(teaching.id), "transcript": heard.text, "changes": changes})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser])
+def knowledge_teach_apply(request, pk):
+    """Save the changes you kept: {"changes": [...]}, a subset of what
+    teach proposed. Re-checked here, so a stale or edited list can't reach
+    another user's entries or skip the length limits."""
+    from django.utils import timezone
+
+    from .models import Teaching
+    from .teach import apply, clean_changes
+
+    teaching = get_object_or_404(Teaching, pk=pk, user=request.user)
+    if teaching.applied_at:
+        return Response({"detail": "Already saved."}, status=status.HTTP_409_CONFLICT)
+    raw = request.data.get("changes") if isinstance(request.data, dict) else None
+    if not isinstance(raw, list):
+        return Response({"detail": "Send the changes to keep."}, status=status.HTTP_400_BAD_REQUEST)
+
+    changes = clean_changes(request.user.id, raw)
+    results = apply(request.user, changes) if changes else []
+    teaching.applied = results
+    teaching.applied_at = timezone.now()
+    teaching.save(update_fields=["applied", "applied_at"])
+    return Response({"applied": results})

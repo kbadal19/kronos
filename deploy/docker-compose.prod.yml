@@ -38,7 +38,10 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     entrypoint: ["/app/backend/docker-entrypoint.sh"]
-    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+    # Threads and a 90s timeout: Ask and Teach answer synchronously
+    # (hear, plan, answer — each with a model fallback), and gunicorn's
+    # default 30s would kill a slow one mid-answer. 90s matches the app.
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "4", "--timeout", "90"]
     env_file: [../backend/.env]
     environment:
       DB_HOST: postgres

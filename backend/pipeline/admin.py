@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CorrectionPair, EntityMerge, ExtractionRun, TranscriptionProfile
+from .models import CorrectionPair, EntityMerge, ExtractionRun, Teaching, TranscriptionProfile
 
 
 @admin.register(ExtractionRun)
@@ -39,3 +39,12 @@ class TranscriptionProfileAdmin(admin.ModelAdmin):
     """Where a new client's languages and speaking context get set."""
 
     list_display = ["user", "languages", "script", "recognizer_language", "updated_at"]
+
+
+@admin.register(Teaching)
+class TeachingAdmin(admin.ModelAdmin):
+    """What was said, what the model proposed, what you kept."""
+
+    list_display = ["created_at", "user", "transcript", "applied_at"]
+    list_filter = ["user"]
+    readonly_fields = [f.name for f in Teaching._meta.fields]

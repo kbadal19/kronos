@@ -10,9 +10,14 @@
  *   Corrections  wrong -> right fixes checked on every note. "Often
  *                misheard as" lands here, as do fixes kept after editing.
  *
+ * Adding is by voice first: the mic beside search opens TeachPanel, where
+ * you say what to remember and approve what Krono made of it. The typed
+ * form behind + stays for spelling a name exactly.
+ *
  * A misheard form must never become an entity, or the recognizer gets
  * nudged towards the mistake — which is why the two are kept apart.
  */
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -38,6 +43,7 @@ import {
 import { colors, radius, space, type } from "../theme";
 import type { Correction, KnowledgeGroup, KnowledgeRow, WordKind } from "../types";
 import { Loading } from "../ui";
+import TeachPanel from "./TeachPanel";
 
 export const KIND_LABEL: Record<string, string> = {
   person: "Person",
@@ -72,9 +78,12 @@ function splitList(value: string) {
 export default function KnowledgeScreen({
   reloadKey,
   onOpenEntity,
+  freeMic,
 }: {
   reloadKey: number;
   onOpenEntity: (id: string) => void;
+  /** Saves a capture still recording, so the mic is ours. */
+  freeMic: () => Promise<void>;
 }) {
   const [section, setSection] = useState<"knowledge" | "corrections">("knowledge");
   return (
@@ -95,7 +104,7 @@ export default function KnowledgeScreen({
         ))}
       </View>
       {section === "knowledge" ? (
-        <KnowledgeList reloadKey={reloadKey} onOpenEntity={onOpenEntity} />
+        <KnowledgeList reloadKey={reloadKey} onOpenEntity={onOpenEntity} freeMic={freeMic} />
       ) : (
         <Corrections reloadKey={reloadKey} />
       )}
@@ -103,7 +112,15 @@ export default function KnowledgeScreen({
   );
 }
 
-function KnowledgeList({ reloadKey, onOpenEntity }: { reloadKey: number; onOpenEntity: (id: string) => void }) {
+function KnowledgeList({
+  reloadKey,
+  onOpenEntity,
+  freeMic,
+}: {
+  reloadKey: number;
+  onOpenEntity: (id: string) => void;
+  freeMic: () => Promise<void>;
+}) {
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<KnowledgeGroup | null>(null);
   const [rows, setRows] = useState<KnowledgeRow[] | null>(null);
@@ -111,6 +128,8 @@ function KnowledgeList({ reloadKey, onOpenEntity }: { reloadKey: number; onOpenE
   const [next, setNext] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [teaching, setTeaching] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   // Responses can arrive out of order while typing; only the latest counts.
   const requestId = useRef(0);
@@ -147,6 +166,26 @@ function KnowledgeList({ reloadKey, onOpenEntity }: { reloadKey: number; onOpenE
     }
   }
 
+  if (teaching) {
+    return (
+      <TeachPanel
+        freeMic={freeMic}
+        onClose={() => setTeaching(false)}
+        onSaved={(results) => {
+          setTeaching(false);
+          const saved = results.filter((r) => !r.skipped);
+          const missed = results.flatMap((r) => r.unlinked ?? []);
+          setNotice(
+            `Remembered: ${saved.map((r) => r.title).join(", ") || "nothing"}` +
+              (missed.length ? ` · couldn't find ${missed.join(", ")} to link to` : "")
+          );
+          setQuery("");
+          load();
+        }}
+      />
+    );
+  }
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.searchRow}>
@@ -159,6 +198,18 @@ function KnowledgeList({ reloadKey, onOpenEntity }: { reloadKey: number; onOpenE
           style={[styles.input, { flex: 1, marginBottom: 0 }]}
           returnKeyType="search"
         />
+        <Pressable
+          onPress={() => {
+            setAdding(false);
+            setNotice(null);
+            setTeaching(true);
+          }}
+          style={({ pressed }) => [styles.addToggle, pressed && { opacity: 0.6 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Teach Krono by voice"
+        >
+          <Ionicons name="mic" size={22} color={colors.accent} />
+        </Pressable>
         <Pressable
           onPress={() => setAdding((a) => !a)}
           style={({ pressed }) => [styles.addToggle, pressed && { opacity: 0.6 }]}
@@ -220,13 +271,16 @@ function KnowledgeList({ reloadKey, onOpenEntity }: { reloadKey: number; onOpenE
             />
           }
           ListHeaderComponent={
-            <Text style={[type.label, { marginVertical: space.sm }]}>
-              {error ? `CAN'T REACH THE SERVER — ${error}` : `${count} ${query ? "MATCHES" : "KNOWN"}`}
-            </Text>
+            <>
+              {notice ? <Text style={[type.small, { color: colors.done, marginTop: space.sm }]}>{notice}</Text> : null}
+              <Text style={[type.label, { marginVertical: space.sm }]}>
+                {error ? `CAN'T REACH THE SERVER — ${error}` : `${count} ${query ? "MATCHES" : "KNOWN"}`}
+              </Text>
+            </>
           }
           ListEmptyComponent={
             <Text style={[type.bodySoft, { marginTop: space.lg }]}>
-              {query ? `Nothing called "${query}" yet. Tap + to add it.` : "Nothing here yet."}
+              {query ? `Nothing called "${query}" yet. Tap the mic to tell Krono about it.` : "Nothing here yet — tap the mic and tell Krono about someone."}
             </Text>
           }
           renderItem={({ item }) => (

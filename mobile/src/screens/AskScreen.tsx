@@ -10,24 +10,23 @@
  * understood against the earlier turns, server-side, until New chat. The
  * chat itself lives for the session; every question is also logged on the
  * server, which is where answers get evaluated.
+ *
+ * Asked out loud, not typed: tap the mic, speak (Hindi, English or both),
+ * tap Done. The server hears it with your vocabulary and answers in the
+ * same request, and the bubble shows what it heard — so a wrong answer
+ * that came from a mishearing is visible as one.
  */
-import { useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { askQuestion, getErrorMessage } from "../api";
+import { askQuestion, askSpoken, getErrorMessage, heardInError, heardNothing } from "../api";
+import { ClipControls } from "../ClipControls";
 import { colors, radius, space, type } from "../theme";
 import type { AskAnswer } from "../types";
+import { removeClip, useClipRecorder } from "../voice";
 
-type Exchange = { question: string; answer?: AskAnswer; error?: string };
+/** `question` is null while the server is still hearing it. */
+type Exchange = { question: string | null; answer?: AskAnswer; error?: string };
 
 const EXAMPLES = [
   "What's pending on the Doon website?",
@@ -36,59 +35,107 @@ const EXAMPLES = [
   "Who owns Rudraksh?",
 ];
 
-export default function AskScreen({ onOpenNote }: { onOpenNote: (id: string) => void }) {
-  const [question, setQuestion] = useState("");
+export default function AskScreen({
+  onOpenNote,
+  freeMic,
+}: {
+  onOpenNote: (id: string) => void;
+  /** Saves a capture still recording, so the mic is ours. */
+  freeMic: () => Promise<void>;
+}) {
   const [history, setHistory] = useState<Exchange[]>([]);
   const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const scroll = useRef<ScrollView>(null);
+  const clip = useClipRecorder();
+
+  const settle = useCallback((patch: Partial<Exchange>) => {
+    setHistory((h) => h.map((x, i) => (i === h.length - 1 ? { ...x, ...patch } : x)));
+  }, []);
 
   function newChat() {
-    if (busy) return;
+    if (busy || clip.recording) return;
     setHistory([]);
     setConversationId(null);
   }
 
-  async function send(text = question) {
-    const q = text.trim();
-    if (!q || busy) return;
-    setQuestion("");
+  async function listen() {
+    setFlash(null);
+    try {
+      await freeMic();
+      await clip.start();
+    } catch (err) {
+      setFlash(getErrorMessage(err));
+    }
+  }
+
+  const finish = useCallback(async () => {
+    const recorded = await clip.stop();
+    if (!recorded) {
+      setFlash("Too short — tap the mic, then speak");
+      return;
+    }
+    setBusy(true);
+    setHistory((h) => [...h, { question: null }]);
+    try {
+      const answer = await askSpoken(recorded.uri, conversationId);
+      setConversationId(answer.conversation_id);
+      settle({ question: answer.question, answer });
+    } catch (err) {
+      if (heardNothing(err)) {
+        setHistory((h) => h.slice(0, -1));
+        setFlash("Didn't catch that — try again.");
+      } else {
+        settle({ question: heardInError(err) ?? "Your question", error: getErrorMessage(err) });
+      }
+    } finally {
+      removeClip(recorded.uri);
+      setBusy(false);
+    }
+  }, [clip, conversationId, settle]);
+
+  /** The examples, which are already words. */
+  async function send(q: string) {
+    if (busy || clip.recording) return;
     setBusy(true);
     setHistory((h) => [...h, { question: q }]);
     try {
       const answer = await askQuestion(q, conversationId);
       setConversationId(answer.conversation_id);
-      setHistory((h) => h.map((x, i) => (i === h.length - 1 ? { ...x, answer } : x)));
+      settle({ answer });
     } catch (err) {
-      setHistory((h) => h.map((x, i) => (i === h.length - 1 ? { ...x, error: getErrorMessage(err) } : x)));
+      settle({ error: getErrorMessage(err) });
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <View style={{ flex: 1 }}>
       {history.length ? (
         <View style={styles.header}>
           <Text style={type.label}>CONVERSATION</Text>
-          <Pressable onPress={newChat} hitSlop={12} accessibilityRole="button" disabled={busy}>
-            <Text style={[type.body, { color: colors.accent }, busy && { opacity: 0.4 }]}>New chat</Text>
+          <Pressable onPress={newChat} hitSlop={12} accessibilityRole="button" disabled={busy || clip.recording}>
+            <Text style={[type.body, { color: colors.accent }, (busy || clip.recording) && { opacity: 0.4 }]}>
+              New chat
+            </Text>
           </Pressable>
         </View>
       ) : null}
       <ScrollView
         ref={scroll}
         contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
       >
         {history.length === 0 ? (
           <View style={styles.intro}>
             <Text style={type.title}>Ask</Text>
             <Text style={[type.bodySoft, { marginTop: space.xs, marginBottom: space.lg }]}>
-              Answers come from your notes and the people and clients Krono knows — with the
-              notes they came from.
+              Tap the mic and ask — in Hindi, English or both. Answers come from your notes and the
+              people and clients Krono knows, with the notes they came from.
             </Text>
+            <Text style={[type.label, { marginBottom: space.sm }]}>OR TRY</Text>
             {EXAMPLES.map((e) => (
               <Pressable
                 key={e}
@@ -104,7 +151,11 @@ export default function AskScreen({ onOpenNote }: { onOpenNote: (id: string) => 
           history.map((x, i) => (
             <View key={i} style={{ marginBottom: space.xl }}>
               <View style={styles.question}>
-                <Text style={type.body}>{x.question}</Text>
+                {x.question === null ? (
+                  <Text style={type.bodySoft}>Hearing you…</Text>
+                ) : (
+                  <Text style={type.body}>{x.question}</Text>
+                )}
               </View>
               {x.answer ? (
                 <Answer answer={x.answer} onOpenNote={onOpenNote} />
@@ -120,36 +171,21 @@ export default function AskScreen({ onOpenNote }: { onOpenNote: (id: string) => 
         )}
       </ScrollView>
 
-      <View style={styles.composer}>
-        <TextInput
-          value={question}
-          onChangeText={setQuestion}
-          placeholder={history.length ? "Ask a follow-up…" : "Ask about your notes, people, clients…"}
-          placeholderTextColor={colors.textFaint}
-          multiline
-          style={styles.input}
-          onSubmitEditing={() => send()}
-          blurOnSubmit
-          returnKeyType="send"
-        />
-        <Pressable
-          onPress={() => send()}
-          disabled={busy || !question.trim()}
-          style={({ pressed }) => [
-            styles.send,
-            (busy || !question.trim()) && { opacity: 0.4 },
-            pressed && { opacity: 0.7 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Ask"
-        >
-          <Text style={styles.sendText}>{busy ? "…" : "Ask"}</Text>
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+      {flash ? <Text style={[type.small, styles.flash]}>{flash}</Text> : null}
+      <ClipControls
+        recording={clip.recording}
+        seconds={clip.seconds}
+        metering={clip.metering}
+        busy={busy ? "Thinking…" : null}
+        idleLabel={history.length ? "Ask a follow-up" : "Tap to ask"}
+        listeningHint="Listening — tap Done when you've asked"
+        onStart={listen}
+        onDone={finish}
+        onCancel={clip.cancel}
+      />
+    </View>
   );
 }
-
 function Answer({ answer, onOpenNote }: { answer: AskAnswer; onOpenNote: (id: string) => void }) {
   return (
     <View style={{ marginTop: space.md }}>
@@ -256,31 +292,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: space.sm,
-    padding: space.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.rule,
-  },
-  input: {
-    flex: 1,
-    maxHeight: 120,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.rule,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    color: colors.text,
-    fontSize: 15,
-  },
-  send: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-  },
-  sendText: { ...type.title, fontSize: 16, color: colors.night },
+  flash: { textAlign: "center", paddingHorizontal: space.lg, paddingBottom: space.xs },
 });

@@ -124,10 +124,39 @@ export type AskSource = { n: number; capture_id: string; captured_at: string; sn
 
 export type AskAnswer = {
   id: string;
+  /** What was asked — for a spoken question, what the server heard. */
+  question: string;
   /** Send back with the next question to continue the same chat. */
   conversation_id: string;
   answer: string;
   /** Only the notes the answer cites, numbered as in the text. */
   sources: AskSource[];
   entities: { id: string; title: string; kind: string; summary: string }[];
+};
+
+/** One change a spoken fact would make. Nothing is saved until applied. */
+export type TeachChange = {
+  op: "create" | "update";
+  entity_id: string | null;
+  kind: EntityKind;
+  title: string;
+  /** New other-names for it. */
+  aliases: string[];
+  /** For an update: a replacement, or null to keep the current one. */
+  summary: string | null;
+  current_summary: string;
+  /** Added to its notes. */
+  note: string | null;
+  /** Titles it belongs to ("Rahul" -> "Stracomm"). */
+  part_of: string[];
+};
+
+export type Teaching = { id: string; transcript: string; changes: TeachChange[] };
+
+export type TeachResult = {
+  op: "create" | "update";
+  id: string;
+  title: string;
+  skipped?: string;
+  unlinked?: string[];
 };

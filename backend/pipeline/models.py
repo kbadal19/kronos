@@ -207,6 +207,9 @@ class Question(models.Model):
     # mean Stracomm's designer.
     conversation_id = models.UUIDField(null=True, blank=True, db_index=True)
     text = models.TextField()
+    # Asked by voice: `text` is then what the recognizer heard, so a wrong
+    # answer may be a mishearing rather than a retrieval or model miss.
+    spoken = models.BooleanField(default=False)
     plan = models.JSONField(default=dict, blank=True)
     note_ids = models.JSONField(default=list, blank=True)
     entity_ids = models.JSONField(default=list, blank=True)
@@ -224,3 +227,30 @@ class Question(models.Model):
 
     def __str__(self):
         return self.text[:80]
+
+
+class Teaching(models.Model):
+    """Something you told Krono to remember, by voice, and what came of it.
+
+    `proposed` is what the model made of `transcript`; `applied` is what you
+    kept after reviewing it — the gap between the two is how the teach
+    prompt gets judged. Nothing changes in the knowledge base until apply.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="teachings"
+    )
+    transcript = models.TextField()
+    heard_by = models.CharField(max_length=100, blank=True)
+    proposed = models.JSONField(default=list, blank=True)
+    model = models.CharField(max_length=100, blank=True)
+    applied = models.JSONField(default=list, blank=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.transcript[:80]

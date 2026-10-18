@@ -9,7 +9,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as SecureStore from "expo-secure-store";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
@@ -18,7 +18,7 @@ import { useKeyboardLift } from "./src/keyboard";
 import { drain, initOutbox, sweepStrandedFiles } from "./src/outbox";
 import { RECORDING_DIRECTORY, registerBackgroundDrain } from "./src/recorder";
 import AskScreen from "./src/screens/AskScreen";
-import CaptureScreen from "./src/screens/CaptureScreen";
+import CaptureScreen, { type CaptureControl } from "./src/screens/CaptureScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import NoteScreen from "./src/screens/NoteScreen";
 import TimelineScreen from "./src/screens/TimelineScreen";
@@ -59,6 +59,12 @@ function AppShell() {
   const openNote = useCallback((id: string) => push({ type: "note", id }), [push]);
   const openEntity = useCallback((id: string) => push({ type: "entity", id }), [push]);
   const keyboardLift = useKeyboardLift();
+  // One mic. Asking or teaching while a capture runs saves the capture
+  // first — the outbox takes it from there — and then takes the mic.
+  const captureControl = useRef<CaptureControl | null>(null);
+  const freeMic = useCallback(async () => {
+    await captureControl.current?.save();
+  }, []);
 
   useEffect(() => {
     if (!stack.length) return;
@@ -161,6 +167,7 @@ function AppShell() {
             onAutoStartChange={onAutoStartChange}
             onSaved={() => setReloadKey((k) => k + 1)}
             onRecordingChange={setRecording}
+            control={captureControl}
           />
         </View>
         <View style={[styles.page, tab !== "timeline" && styles.hidden]} pointerEvents={tab === "timeline" ? "auto" : "none"}>
@@ -168,11 +175,11 @@ function AppShell() {
         </View>
         {/* Kept mounted so the conversation survives a trip to another tab. */}
         <View style={[styles.page, tab !== "ask" && styles.hidden]} pointerEvents={tab === "ask" ? "auto" : "none"}>
-          <AskScreen onOpenNote={openNote} />
+          <AskScreen onOpenNote={openNote} freeMic={freeMic} />
         </View>
         {/* Kept mounted so a search survives opening an entity and coming back. */}
         <View style={[styles.page, tab !== "knowledge" && styles.hidden]} pointerEvents={tab === "knowledge" ? "auto" : "none"}>
-          <KnowledgeScreen reloadKey={reloadKey} onOpenEntity={openEntity} />
+          <KnowledgeScreen reloadKey={reloadKey} onOpenEntity={openEntity} freeMic={freeMic} />
         </View>
         {/* Over whichever tab opened it — a timeline row or an answer's
             citation — and back to that tab when closed. */}

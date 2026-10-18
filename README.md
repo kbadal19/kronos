@@ -113,6 +113,10 @@ cd mobile && npm install && npx expo run:android
 | GET | `/api/captures/<uuid>/` | one capture with transcripts and segments |
 | GET | `/api/graph/?limit=500` | nodes + edges for the circles view |
 | GET | `/api/nodes/<uuid>/` | one node and everything edged to it |
+| POST | `/api/ask/` | `{question, conversation_id?}` -> answer with cited notes |
+| POST | `/api/ask/spoken/` | multipart `audio` (+ `conversation_id`): heard and answered in one request; `question` is what was heard |
+| POST | `/api/knowledge/teach/` | multipart `audio`: what was heard + proposed knowledge changes. Saves nothing |
+| POST | `/api/knowledge/teach/<uuid>/apply/` | `{changes: [...]}`, the ones you kept -> written to the knowledge base |
 
 `POST /api/captures/` returns **202** for a new capture and **200** for one
 already seen. The app's outbox should treat both as success and stop

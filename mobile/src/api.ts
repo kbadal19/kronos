@@ -13,6 +13,9 @@ import type {
   Paginated,
   PipelineHealth,
   Suggestion,
+  TeachChange,
+  TeachResult,
+  Teaching,
   Word,
   WordKind,
 } from "./types";
@@ -317,7 +320,53 @@ export async function askQuestion(question: string, conversationId?: string | nu
   return data;
 }
 
+function clipForm(uri: string): FormData {
+  const form = new FormData();
+  form.append("audio", { uri, name: "clip.m4a", type: "audio/m4a" } as unknown as Blob);
+  return form;
+}
+
+/** A question asked out loud: heard and answered in one round trip. The
+ *  answer's `question` is what the server heard. A 422 means it heard
+ *  nothing; any other failure may still carry `question` in its body. */
+export async function askSpoken(uri: string, conversationId?: string | null): Promise<AskAnswer> {
+  const form = clipForm(uri);
+  if (conversationId) form.append("conversation_id", conversationId);
+  const { data } = await client.post("/ask/spoken/", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 90_000,
+  });
+  return data;
+}
+
+/** What a failed request heard, if it got that far. */
+export function heardInError(err: unknown): string | null {
+  if (!axios.isAxiosError(err)) return null;
+  const data = err.response?.data as { question?: unknown; transcript?: unknown } | undefined;
+  const heard = data?.question ?? data?.transcript;
+  return typeof heard === "string" ? heard : null;
+}
+
+export function heardNothing(err: unknown): boolean {
+  return axios.isAxiosError(err) && err.response?.status === 422;
+}
+
 // --- Knowledge ---
+
+/** Something to remember, said out loud. Returns what was heard and the
+ *  changes it would make — the server saves nothing yet. */
+export async function teach(uri: string): Promise<Teaching> {
+  const { data } = await client.post("/knowledge/teach/", clipForm(uri), {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 90_000,
+  });
+  return data;
+}
+
+export async function applyTeaching(id: string, changes: TeachChange[]): Promise<TeachResult[]> {
+  const { data } = await client.post(`/knowledge/teach/${id}/apply/`, { changes });
+  return data.applied;
+}
 
 export async function listKnowledge(params: {
   q?: string;

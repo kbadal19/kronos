@@ -345,9 +345,10 @@ def _entity_cards(entity_ids):
 HISTORY_TURNS = 4
 
 
-def ask(user, question, conversation_id=None):
+def ask(user, question, conversation_id=None, spoken=False):
     """The whole loop. Logs a Question row whatever happens. Pass the
-    conversation_id from a previous answer to continue that chat."""
+    conversation_id from a previous answer to continue that chat; `spoken`
+    marks a question that was heard rather than typed."""
     import uuid
 
     from capture.models import Capture
@@ -365,7 +366,7 @@ def ask(user, question, conversation_id=None):
             .order_by("-created_at")[:HISTORY_TURNS]
         )
     ]
-    log = Question(user=user, text=question, conversation_id=conversation_id)
+    log = Question(user=user, text=question, conversation_id=conversation_id, spoken=spoken)
     result = None
 
     try:
