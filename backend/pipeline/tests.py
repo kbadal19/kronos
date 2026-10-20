@@ -86,6 +86,32 @@ class ClipFallbackTests(TestCase):
         self.assertFalse(Path(seen["path"]).exists())
 
 
+class AskGenerateTests(TestCase):
+    @override_settings(GEMINI_API_KEY="k")
+    @mock.patch("google.genai.Client")
+    def test_model_that_rejects_thinking_config_is_retried_without_it(self, Client):
+        from google.genai import errors
+
+        from . import ask
+
+        ask._NO_THINKING_CONFIG.clear()
+        bad = errors.ClientError(400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}})
+        ok = mock.Mock(parsed=ask._Answer(answer="hi", cited=[]), usage_metadata=None)
+        generate = Client.return_value.models.generate_content
+        generate.side_effect = [bad, ok, ok]
+
+        parsed, model, _ = ask._generate("q", "s", ask._Answer, ["lite"], thinking="low")
+        self.assertEqual((parsed.answer, model), ("hi", "lite"))
+        configs = [c.kwargs["config"].thinking_config for c in generate.call_args_list]
+        self.assertEqual(configs[0].thinking_level, "LOW")
+        self.assertIsNone(configs[1])
+
+        ask._generate("q", "s", ask._Answer, ["lite"], thinking="low")  # remembered: no second 400
+        self.assertIsNone(generate.call_args_list[2].kwargs["config"].thinking_config)
+        self.assertEqual(generate.call_count, 3)
+        ask._NO_THINKING_CONFIG.clear()
+
+
 class TeachTests(TestCase):
     def setUp(self):
         User = get_user_model()

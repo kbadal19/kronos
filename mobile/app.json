@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Krono",
+    "name": "SANS",
     "slug": "secondmind",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -22,7 +22,7 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Krono records what you say so it can transcribe it and link it into your knowledge graph."
+        "NSMicrophoneUsageDescription": "SANS records what you say so it can transcribe it and link it into your knowledge graph."
       }
     },
     "plugins": [
@@ -32,7 +32,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Krono records what you say so it can transcribe it and link it into your knowledge graph."
+          "microphonePermission": "SANS records what you say so it can transcribe it and link it into your knowledge graph."
         }
       ],
       "expo-font",

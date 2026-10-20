@@ -4,6 +4,8 @@ is checked against. Both feed the next capture straight away: vocabulary
 biases Deepgram (keyterms) and briefs Gemini; corrections go into the
 normalize prompt.
 """
+import time
+
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -149,13 +151,13 @@ def _conversation_id(request):
         return None, Response({"detail": "Bad conversation_id."}, status=status.HTTP_400_BAD_REQUEST)
 
 
-def _answer(user, question, conversation_id, spoken=False):
+def _answer(user, question, conversation_id, spoken=False, timings=None):
     from django.utils import timezone
 
     from .ask import AskError, ask
 
     try:
-        result = ask(user, question, conversation_id, spoken=spoken)
+        result = ask(user, question, conversation_id, spoken=spoken, timings=timings)
     except AskError as exc:
         # The question goes back too: when it was spoken, it's the only
         # place the app learns what was heard.
@@ -234,10 +236,12 @@ def ask_spoken(request):
     conversation_id, error = _conversation_id(request)
     if error:
         return error
+    started = time.monotonic()
     heard, error = _clip(request, "question")
     if error:
         return error
-    return _answer(request.user, heard.text[:1000], conversation_id, spoken=True)
+    timings = {"heard": int((time.monotonic() - started) * 1000), "heard_by": heard.via}
+    return _answer(request.user, heard.text[:1000], conversation_id, spoken=True, timings=timings)
 
 
 # --- Knowledge: browse, inspect, correct ------------------------------------
@@ -263,7 +267,7 @@ def _list_row(n):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def knowledge_list(request):
-    """Everything Krono knows, searchable. ?q= matches names, aliases and
+    """Everything SANS knows, searchable. ?q= matches names, aliases and
     summaries — and names by sound, so "starcom" finds Stracomm. ?kind=
     is a group (person, company, place, project, other). ?page= from 1."""
     from django.db.models import CharField, F, Func, Value
@@ -311,9 +315,9 @@ def knowledge_list(request):
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def knowledge_detail(request, pk):
-    """One entity's page: what Krono knows, your notes on it, how it
+    """One entity's page: what SANS knows, your notes on it, how it
     connects, and every note that mentions it. PATCH corrects it; DELETE
-    removes it from what Krono knows (soft — nothing is hard-deleted)."""
+    removes it from what SANS knows (soft — nothing is hard-deleted)."""
     from .knowledge import links, mentions
 
     node = get_object_or_404(_vocabulary(request.user), pk=pk)
@@ -376,7 +380,7 @@ def knowledge_link(request, pk, other):
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def knowledge_teach(request):
-    """Tell Krono something to remember: `audio` as multipart. Returns what
+    """Tell SANS something to remember: `audio` as multipart. Returns what
     was heard and the changes it would make — nothing is saved to the
     knowledge base until you apply them."""
     from .models import Teaching

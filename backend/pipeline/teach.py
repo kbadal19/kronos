@@ -1,5 +1,5 @@
 """
-Teaching Krono by voice: "Rahul is the new designer at Stracomm, he
+Teaching SANS by voice: "Rahul is the new designer at Stracomm, he
 handles their Instagram."
 
 Two steps, and nothing changes in between:
@@ -210,7 +210,7 @@ def _is_uuid(value):
 
 def propose(user, transcript):
     """(changes, model) for what was said. Raises TeachError."""
-    from google import genai
+    from .gemini import client as shared_client
     from google.genai import errors, types
 
     from graph.models import Node
@@ -233,7 +233,7 @@ def propose(user, transcript):
         + f"What they said:\n{transcript}"
     )
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = shared_client()
     models = list(dict.fromkeys(m for m in (settings.GEMINI_SMART_MODEL, settings.GEMINI_FAST_MODEL) if m))
     failures = []
     for model in models:

@@ -200,7 +200,7 @@ export default function CaptureScreen({
       <View style={styles.center}>
         <Text style={type.title}>The mic is off</Text>
         <Text style={[type.bodySoft, { textAlign: "center", marginTop: space.sm }]}>
-          Krono cannot do anything without it. Enable microphone access in
+          SANS cannot do anything without it. Enable microphone access in
           Settings and reopen the app.
         </Text>
       </View>

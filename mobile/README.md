@@ -1,4 +1,4 @@
-# Second Mind — mobile
+# SANS — mobile
 
 Open it, and the microphone is already live. Talk. That's the app.
 
@@ -50,9 +50,11 @@ four ABIs and no shrinking was 81MB. R8 can't see classes loaded by name —
 drain needs; test a release build on a device after adding any native
 module.
 
-Sideloaded, so there's no store to push updates through — which is why
-`expo-updates` is wired in. JS-only changes ship over the air; only a
-native dependency change needs a new APK on the cable.
+Sideloaded, so there's no store to push updates through. `expo-updates`
+is installed, but `app.json` has no EAS project or updates URL, so **OTA
+does nothing yet**. Every change, JS-only included, ships as a new APK
+via `../deploy/publish_apk.sh`. Setting up EAS Update would let JS
+changes go over the air.
 
 ## Design decisions worth knowing
 

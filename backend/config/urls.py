@@ -12,19 +12,24 @@ def app_download(request, token):
     expected = settings.APP_DOWNLOAD_TOKEN
     if not expected or not hmac.compare_digest(token, expected):
         raise Http404
-    apk = settings.APP_DOWNLOAD_DIR / "krono.apk"
-    if not apk.is_file():
+    # krono.apk: what publish_apk.sh wrote before the rename to SANS, served
+    # until the next publish replaces it.
+    folder = settings.APP_DOWNLOAD_DIR
+    apk = next((p for p in (folder / "sans.apk", folder / "krono.apk") if p.is_file()), None)
+    if apk is None:
         raise Http404
     return FileResponse(
         open(apk, "rb"),
         as_attachment=True,
-        filename="Krono.apk",
+        filename="SANS.apk",
         content_type="application/vnd.android.package-archive",
     )
 
 
 urlpatterns = [
-    path("app/<str:token>/krono.apk", app_download, name="app-download"),
+    path("app/<str:token>/sans.apk", app_download, name="app-download"),
+    # The link from before the rename, so one saved on the phone still works.
+    path("app/<str:token>/krono.apk", app_download),
     path("admin/", admin.site.urls),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),

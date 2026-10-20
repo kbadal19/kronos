@@ -43,7 +43,7 @@ export default function LoginScreen({ onDone }: { onDone: () => void }) {
       style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <Text style={type.display}>Krono</Text>
+      <Text style={type.display}>SANS</Text>
       <Text style={[type.bodySoft, { marginTop: space.sm, marginBottom: space.xxl }]}>
         Sign in once. This phone stays signed in for a year.
       </Text>

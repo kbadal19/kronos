@@ -1,5 +1,5 @@
 /**
- * The mic for talking to Krono: one big target when idle, and while
+ * The mic for talking to SANS: one big target when idle, and while
  * listening a timer, a level meter (the only way to see a muted mic) and
  * Done / Cancel. Tap to start, tap to finish — not hold-to-talk, which is
  * hard to keep up lying in bed.

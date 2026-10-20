@@ -278,7 +278,7 @@ def _guard(raw_text, text):
 def normalize_capture(capture, raw_text):
     """One Gemini call. Raises NormalizationError (retry) or
     NormalizationRejected (give up, keep raw)."""
-    from google import genai
+    from .gemini import client as shared_client
     from google.genai import errors, types
 
     from .models import TranscriptionProfile
@@ -301,7 +301,7 @@ def normalize_capture(capture, raw_text):
         m for m in (settings.NORMALIZE_MODEL, settings.NORMALIZE_FALLBACK_MODEL) if m
     ))
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = shared_client()
     uploaded = None
     contents = []
     response = None

@@ -34,12 +34,12 @@ def _hash(text):
 def embed_texts(texts, *, task):
     """task: "RETRIEVAL_DOCUMENT" for what's stored, "RETRIEVAL_QUERY" for
     a question. Asymmetric on purpose — the model embeds them differently."""
-    from google import genai
+    from .gemini import client as shared_client
     from google.genai import errors, types
 
     if not settings.GEMINI_API_KEY:
         raise EmbeddingError("GEMINI_API_KEY is not set")
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = shared_client()
 
     vectors = []
     for start in range(0, len(texts), BATCH):

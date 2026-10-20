@@ -1,5 +1,5 @@
 /**
- * Teaching Krono out loud: "Rahul is the new designer at Stracomm — he
+ * Teaching SANS out loud: "Rahul is the new designer at Stracomm — he
  * handles their Instagram."
  *
  * Say it, and you get back what was heard and the changes it would make:
@@ -90,7 +90,7 @@ export default function TeachPanel({
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.header}>
-        <Text style={type.label}>TEACH KRONO</Text>
+        <Text style={type.label}>TEACH SANS</Text>
         <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close" disabled={clip.recording}>
           <Ionicons name="close" size={20} color={colors.textSoft} />
         </Pressable>
@@ -104,7 +104,7 @@ export default function TeachPanel({
             {teaching.changes.length ? (
               <>
                 <Text style={[type.label, { marginTop: space.lg, marginBottom: space.sm }]}>
-                  KRONO WILL REMEMBER — UNTICK WHAT'S WRONG
+                  SANS WILL REMEMBER — UNTICK WHAT'S WRONG
                 </Text>
                 {teaching.changes.map((c, i) => (
                   <ChangeCard
@@ -123,7 +123,7 @@ export default function TeachPanel({
           </>
         ) : (
           <Text style={[type.bodySoft, { marginTop: space.sm }]}>
-            Tell Krono about a person, client, place or project, the way you'd tell a colleague —
+            Tell SANS about a person, client, place or project, the way you'd tell a colleague —
             "Rahul is the new designer at Stracomm, he handles their Instagram." You'll see what it
             understood before anything is saved.
           </Text>

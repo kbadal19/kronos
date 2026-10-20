@@ -1,5 +1,5 @@
 /**
- * Short clips for talking *to* Krono — a question on Ask, a fact to
+ * Short clips for talking *to* SANS — a question on Ask, a fact to
  * remember on Knowledge — as opposed to captures, which talk to yourself.
  *
  * A clip never goes through the outbox. Someone is looking at the screen

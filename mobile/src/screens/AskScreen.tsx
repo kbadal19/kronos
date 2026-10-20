@@ -1,10 +1,11 @@
 /**
  * Ask your knowledge base.
  *
- * Answers come only from your own notes and the people, clients and
- * places Krono knows — never the model's general knowledge — and every
- * claim from a note is cited. Tap a citation to read the note it came
- * from: an answer you can't check is an answer you can't trust.
+ * Facts about your life come only from your own notes and the people,
+ * clients and places SANS knows, and every claim from a note is cited.
+ * Advice and ideas are SANS's own, kept apart from what's cited. Tap a
+ * citation to read the note it came from: an answer you can't check is an
+ * answer you can't trust.
  *
  * It's a conversation: follow-ups ("and who's their designer?") are
  * understood against the earlier turns, server-side, until New chat. The
@@ -133,7 +134,8 @@ export default function AskScreen({
             <Text style={type.title}>Ask</Text>
             <Text style={[type.bodySoft, { marginTop: space.xs, marginBottom: space.lg }]}>
               Tap the mic and ask — in Hindi, English or both. Answers come from your notes and the
-              people and clients Krono knows, with the notes they came from.
+              people and clients SANS knows, with the notes they came from — and
+              ask for advice too.
             </Text>
             <Text style={[type.label, { marginBottom: space.sm }]}>OR TRY</Text>
             {EXAMPLES.map((e) => (

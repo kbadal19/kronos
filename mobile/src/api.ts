@@ -392,7 +392,7 @@ export async function updateEntity(
   return data;
 }
 
-/** Removes it from what Krono knows (soft on the server). */
+/** Removes it from what SANS knows (soft on the server). */
 export async function removeEntity(id: string): Promise<void> {
   await client.delete(`/knowledge/${id}/`);
 }

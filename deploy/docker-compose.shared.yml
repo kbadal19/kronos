@@ -61,7 +61,7 @@ services:
       REDIS_URL: redis://secondmind-redis:6379/0
     volumes:
       - audio_spool:/app/backend/spool
-      # The APK served at /app/<token>/krono.apk; see publish_apk.sh.
+      # The APK served at /app/<token>/sans.apk; see publish_apk.sh.
       - /opt/secondmind/downloads:/app/backend/downloads:ro
     networks:
       default:

@@ -219,6 +219,9 @@ class Question(models.Model):
     input_tokens = models.PositiveIntegerField(null=True, blank=True)
     output_tokens = models.PositiveIntegerField(null=True, blank=True)
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    # Wall-clock ms per stage (heard, plan, embed, search, answer, ...), so
+    # a slow answer can be pinned on the stage that was slow.
+    timings = models.JSONField(default=dict, blank=True)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -230,7 +233,7 @@ class Question(models.Model):
 
 
 class Teaching(models.Model):
-    """Something you told Krono to remember, by voice, and what came of it.
+    """Something you told SANS to remember, by voice, and what came of it.
 
     `proposed` is what the model made of `transcript`; `applied` is what you
     kept after reviewing it — the gap between the two is how the teach

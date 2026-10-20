@@ -1,5 +1,5 @@
 /**
- * One entity: what Krono knows about it, your notes on it, how it
+ * One entity: what SANS knows about it, your notes on it, how it
  * connects, and every note where you've mentioned it.
  *
  * Connections are tappable — walking Stracomm -> Shubham -> back is how the
@@ -104,7 +104,7 @@ export default function EntityScreen({
   function confirmRemove() {
     Alert.alert(
       `Remove ${entity!.title}?`,
-      "Krono will stop using it for transcription and answers. Your notes that mention it stay.",
+      "SANS will stop using it for transcription and answers. Your notes that mention it stay.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -154,7 +154,7 @@ export default function EntityScreen({
               <Text style={[type.small, { marginTop: space.sm }]}>Also called {entity.aliases.join(", ")}</Text>
             ) : null}
 
-            <Section title="WHAT KRONO KNOWS">
+            <Section title="WHAT SANS KNOWS">
               <Text style={type.body}>{entity.summary || "Nothing written yet."}</Text>
             </Section>
             {entity.body ? (
@@ -390,7 +390,7 @@ function EditForm({
       <Field label="ALSO CALLED (comma-separated; real names only, not mishearings)">
         <TextInput value={aliases} onChangeText={setAliases} autoCorrect={false} style={styles.input} />
       </Field>
-      <Field label="WHAT KRONO KNOWS (one line — used when transcribing)">
+      <Field label="WHAT SANS KNOWS (one line — used when transcribing)">
         <TextInput value={summary} onChangeText={setSummary} maxLength={160} multiline style={styles.input} />
       </Field>
       <Field label="YOUR NOTES (private — used for answers, never sent while transcribing)">

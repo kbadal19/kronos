@@ -107,7 +107,7 @@ def _context(user_id):
 
 
 def _gemini(user_id, audio, mime, purpose, profile):
-    from google import genai
+    from .gemini import client as shared_client
     from google.genai import errors, types
 
     notes = profile.speaker_notes.strip()
@@ -122,7 +122,7 @@ def _gemini(user_id, audio, mime, purpose, profile):
     if context:
         contents.append(context)
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = shared_client()
     models = list(dict.fromkeys(m for m in (settings.GEMINI_FAST_MODEL, settings.GEMINI_SMART_MODEL) if m))
     failures = []
     for model in models:

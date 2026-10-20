@@ -156,7 +156,7 @@ AUDIO_SPOOL_DIR = Path(os.getenv("AUDIO_SPOOL_DIR", BASE_DIR / "spool"))
 AUDIO_RETENTION_HOURS = int(os.getenv("AUDIO_RETENTION_HOURS", "24"))
 MAX_CAPTURE_BYTES = int(os.getenv("MAX_CAPTURE_BYTES", str(50 * 1024 * 1024)))
 
-# The sideloaded Android app, served at /app/<token>/krono.apk so the phone
+# The sideloaded Android app, served at /app/<token>/sans.apk so the phone
 # can install updates from a link instead of a cable. Off unless a token
 # is set; the token keeps the URL unguessable without needing a login the
 # app can't do yet at install time. deploy/publish_apk.sh puts the file here.
@@ -201,6 +201,15 @@ GEMINI_FAST_MODEL = os.getenv("GEMINI_FAST_MODEL", "gemini-flash-lite-latest")
 GEMINI_SMART_MODEL = os.getenv("GEMINI_SMART_MODEL", "gemini-flash-latest")
 GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
 EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
+# Thinking for Ask's two calls: a level ("low", "high"), a token budget
+# ("0" = off), or blank for the model's own default.
+# The plan only turns a question into search terms and dates: no thinking.
+# The answer thinks "low". Measured 2026-10-19, 15 real questions on prod:
+# the default thought for up to 1,700 tokens (8.5s median, 18.5s max) and
+# answered no better than "low" (2.1s median), once worse — it missed a
+# note that "low" found.
+ASK_PLAN_THINKING = os.getenv("ASK_PLAN_THINKING", "0").strip() or None
+ASK_ANSWER_THINKING = os.getenv("ASK_ANSWER_THINKING", "low").strip() or None
 
 # The normalize pass: Gemini re-listens to the audio with the Deepgram
 # draft, your vocabulary and your recent notes in hand, and writes the

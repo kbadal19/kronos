@@ -22,6 +22,7 @@ every question is logged (models.Question) as a free eval set.
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
@@ -79,31 +80,39 @@ Return JSON:
 """
 
 ANSWER_PROMPT = """\
-You are Krono, the speaker's personal assistant. You know their life from
+You are SANS (Spoken Archive & Neural System), the speaker's personal assistant. You know their life from
 their own voice notes and knowledge base, and you talk with them about it
 — like a sharp assistant who's been taking notes for them, not like a
 search engine.
 {speaker}
 How to answer:
-1. Facts come only from the notes and knowledge below. If they don't say,
-   tell them plainly that you don't have it — never guess or fill gaps.
-   Say what you do know that's close, if anything.
-2. Cite the notes you used inline as [n]. Knowledge-base facts (who
+1. Facts about their life — people, clients, what happened, what they
+   said, decided or planned — come only from the notes and knowledge
+   below. Never guess or fill gaps there: if the notes don't say, tell
+   them plainly, and say what you do know that's close.
+2. Everything else is yours to bring: advice, ideas, explanations, how to
+   approach something, what they may be missing. When they ask what to
+   do or for suggestions, actually advise, like an experienced
+   consultant who knows their situation — build on what the notes say,
+   then add what you'd recommend and why. Never just read their own
+   notes back to them as the answer. Keep it clear which parts are their
+   notes (cited) and which are your suggestions.
+3. Cite the notes you used inline as [n]. Knowledge-base facts (who
    someone is, how people connect) need no citation.
-3. Be conversational: natural, warm, direct. Answer the question first,
+4. Be conversational: natural, warm, direct. Answer the question first,
    then add what's useful around it — the person behind a company, a
    pending task, when they last mentioned it. No preamble like "Based on
    the notes provided".
-4. For broad questions ("tell me everything about X", "what's going on
+5. For broad questions ("tell me everything about X", "what's going on
    with Y") give a well-organised overview: who or what it is, the people
    involved, what the notes say over time, anything open or pending.
    Otherwise keep it short.
-5. This is a conversation: use the earlier turns to understand what
+6. This is a conversation: use the earlier turns to understand what
    "they", "him", "that client" refer to, and don't repeat what you've
    already told them unless asked.
-6. Resolve dates against the note dates and today ({today}); say
+7. Resolve dates against the note dates and today ({today}); say
    "yesterday", "last Tuesday" where that's clearer.
-7. Reply in the language and style of the question — English or Hinglish.
+8. Reply in the language and style of the question — English or Hinglish.
 
 Return JSON: "answer" (text with [n] citations) and "cited" (the note
 numbers you used).
@@ -119,26 +128,24 @@ class Result:
     conversation_id: str = ""
 
 
-def _generate(prompt, system, schema, models):
+# Models that 400 on any thinking config (flash-lite doesn't think, and
+# says so by rejecting the field). Learned on first contact, per process.
+_NO_THINKING_CONFIG = set()
+
+
+def _generate(prompt, system, schema, models, thinking=None):
     """One structured Gemini call, falling through to the next model on
-    overload or quota (same policy as normalize)."""
-    from google import genai
+    overload or quota (same policy as normalize). `thinking` is a level
+    ("low"), a token budget ("0"), or None to leave it to the model."""
+    from .gemini import client as shared_client
     from google.genai import errors, types
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = shared_client()
     failures = []
     for model in models:
+        configured = thinking is not None and model not in _NO_THINKING_CONFIG
         try:
-            response = client.models.generate_content(
-                model=model,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    temperature=0.0,
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                ),
-            )
+            response = _call(client, types, model, prompt, system, schema, thinking if configured else None)
         except errors.ServerError as exc:
             failures.append(f"{model}: {exc.code}")
             continue
@@ -146,10 +153,40 @@ def _generate(prompt, system, schema, models):
             if exc.code == 429:
                 failures.append(f"{model}: rate limited")
                 continue
-            raise AskError(f"Gemini rejected the request: {exc}") from exc
+            if exc.code == 400 and configured:
+                _NO_THINKING_CONFIG.add(model)
+                try:
+                    response = _call(client, types, model, prompt, system, schema, None)
+                except errors.APIError as retry_exc:
+                    failures.append(f"{model}: {retry_exc.code}")
+                    continue
+            else:
+                raise AskError(f"Gemini rejected the request: {exc}") from exc
         parsed = response.parsed or schema.model_validate_json(response.text or "{}")
         return parsed, model, response.usage_metadata
     raise AskError("Gemini unavailable: " + "; ".join(failures))
+
+
+def _thinking_config(types, thinking):
+    if thinking is None:
+        return None
+    if str(thinking).isdigit():
+        return types.ThinkingConfig(thinking_budget=int(thinking))
+    return types.ThinkingConfig(thinking_level=thinking)
+
+
+def _call(client, types, model, prompt, system, schema, thinking):
+    return client.models.generate_content(
+        model=model,
+        contents=[prompt],
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=0.0,
+            response_mime_type="application/json",
+            response_schema=schema,
+            thinking_config=_thinking_config(types, thinking),
+        ),
+    )
 
 
 def _models(primary):
@@ -173,6 +210,7 @@ def plan(question, today, history=()):
             PLAN_PROMPT.format(today=f"{today:%A %d %B %Y}", history=_history_text(history)),
             _Plan,
             _models(settings.GEMINI_FAST_MODEL),
+            thinking=settings.ASK_PLAN_THINKING,
         )
         out = parsed.model_dump()
     except AskError:
@@ -208,14 +246,23 @@ def _fuse(*ranked_lists):
     return [item for item, _ in sorted(scores.items(), key=lambda kv: -kv[1])]
 
 
-def search(user_id, question, p):
-    """(note ids best first, entity ids best first) for a planned question."""
+def search(user_id, question, p, query_vector=None):
+    """(note ids best first, entity ids best first) for a planned question.
+
+    `query_vector`, if given, returns the question's embedding (or raises
+    EmbeddingError) — ask() starts it alongside the plan rather than
+    waiting for the plan to finish."""
     from capture.models import Capture, NoteEmbedding, Transcript
     from graph.models import Embedding, Node
     from pgvector.django import CosineDistance
 
     from .embeddings import EmbeddingError, embed_texts
     from .retrieval import RELATED_MAX_DISTANCE, match_text
+
+    if query_vector is None:
+        def query_vector():
+            [vec] = embed_texts([p["standalone"] or question], task="RETRIEVAL_QUERY")
+            return vec
 
     notes = Capture.objects.filter(user_id=user_id, transcripts__isnull=False).distinct()
     start, end = _date_bounds(p)
@@ -249,7 +296,7 @@ def search(user_id, question, p):
     # Meaning: question vector vs note vectors (and entity vectors).
     by_meaning, entities_by_meaning = [], []
     try:
-        [qvec] = embed_texts([p["standalone"] or question], task="RETRIEVAL_QUERY")
+        qvec = query_vector()
         by_meaning = list(
             NoteEmbedding.objects.filter(capture_id__in=note_ids, model=settings.GEMINI_EMBEDDING_MODEL)
             .order_by(CosineDistance("vector", qvec))
@@ -344,11 +391,35 @@ def _entity_cards(entity_ids):
 
 HISTORY_TURNS = 4
 
+# Network-only work (no DB) run alongside the plan call.
+_side = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ask")
 
-def ask(user, question, conversation_id=None, spoken=False):
+
+def _embed_question(text):
+    from . import embeddings
+
+    [vec] = embeddings.embed_texts([text], task="RETRIEVAL_QUERY")
+    return vec
+
+
+class _Stopwatch:
+    """Wall-clock ms per stage, for Question.timings."""
+
+    def __init__(self, timings):
+        self.timings = timings
+        self.mark = time.monotonic()
+
+    def lap(self, stage):
+        now = time.monotonic()
+        self.timings[stage] = int((now - self.mark) * 1000)
+        self.mark = now
+
+
+def ask(user, question, conversation_id=None, spoken=False, timings=None):
     """The whole loop. Logs a Question row whatever happens. Pass the
     conversation_id from a previous answer to continue that chat; `spoken`
-    marks a question that was heard rather than typed."""
+    marks a question that was heard rather than typed. `timings` carries
+    stages measured before this (e.g. hearing the clip) into the log."""
     import uuid
 
     from capture.models import Capture
@@ -356,6 +427,8 @@ def ask(user, question, conversation_id=None, spoken=False):
     from .models import Question, TranscriptionProfile
 
     started = time.monotonic()
+    timings = dict(timings or {})
+    watch = _Stopwatch(timings)
     today = timezone.localdate()
     conversation_id = conversation_id or uuid.uuid4()
     history = [
@@ -370,9 +443,20 @@ def ask(user, question, conversation_id=None, spoken=False):
     result = None
 
     try:
+        # A first question is embedded as asked, while the plan is being
+        # made: the two calls are each ~1s and neither needs the other.
+        # A follow-up ("and their designer?") means nothing on its own, so
+        # it waits for the plan's standalone form instead.
+        query_vector = None
+        if not history and settings.GEMINI_API_KEY:
+            pending = _side.submit(_embed_question, question)
+            query_vector = pending.result
+        watch.lap("prepare")
         p = plan(question, today, history)
         log.plan = p
-        note_ids, entity_ids = search(user.id, question, p)
+        watch.lap("plan")
+        note_ids, entity_ids = search(user.id, question, p, query_vector)
+        watch.lap("search")
         log.note_ids = [str(i) for i in note_ids]
         log.entity_ids = [str(i) for i in entity_ids]
 
@@ -406,7 +490,12 @@ def ask(user, question, conversation_id=None, spoken=False):
             + ("Notes:\n" + "\n\n".join(blocks) + "\n\n" if blocks else "Notes: none matched.\n\n")
             + ("Knowledge base:\n" + "\n".join(cards) if cards else "")
         )
-        parsed, model, usage = _generate(prompt, system, _Answer, _models(settings.GEMINI_SMART_MODEL))
+        watch.lap("context")
+        parsed, model, usage = _generate(
+            prompt, system, _Answer, _models(settings.GEMINI_SMART_MODEL),
+            thinking=settings.ASK_ANSWER_THINKING,
+        )
+        watch.lap("answer")
 
         cited = [n for n in dict.fromkeys(parsed.cited) if 1 <= n <= len(numbered)]
         by_n = dict(numbered)
@@ -430,6 +519,7 @@ def ask(user, question, conversation_id=None, spoken=False):
         raise
     finally:
         log.latency_ms = int((time.monotonic() - started) * 1000)
+        log.timings = timings
         log.save()
         if result is not None:
             result.question_id = str(log.id)

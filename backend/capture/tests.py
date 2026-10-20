@@ -1073,7 +1073,7 @@ class AskFixture(TestCase):
     def _gemini(self, plan, answer):
         from pipeline.ask import _Answer, _Plan
 
-        def fake(prompt, system, schema, models):
+        def fake(prompt, system, schema, models, **kwargs):
             self.prompts.append(prompt)
             self.systems.append(system)
             return (_Plan(**plan) if schema is _Plan else _Answer(**answer)), "gemini-stub", None
@@ -1105,6 +1105,7 @@ class AskTests(AskFixture):
         q = Question.objects.get(user=self.user)
         self.assertEqual(q.cited_note_ids, [str(self.website.id)])
         self.assertIn(str(self.website.id), q.note_ids)
+        self.assertTrue({"plan", "search", "answer"} <= set(q.timings))
 
     def test_date_range_filters_hard(self):
         start = (timezone.localdate() - timedelta(days=12)).isoformat()

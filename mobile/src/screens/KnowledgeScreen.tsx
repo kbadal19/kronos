@@ -1,5 +1,5 @@
 /**
- * What Krono knows.
+ * What SANS knows.
  *
  * Two sections:
  *
@@ -11,7 +11,7 @@
  *                misheard as" lands here, as do fixes kept after editing.
  *
  * Adding is by voice first: the mic beside search opens TeachPanel, where
- * you say what to remember and approve what Krono made of it. The typed
+ * you say what to remember and approve what SANS made of it. The typed
  * form behind + stays for spelling a name exactly.
  *
  * A misheard form must never become an entity, or the recognizer gets
@@ -206,7 +206,7 @@ function KnowledgeList({
           }}
           style={({ pressed }) => [styles.addToggle, pressed && { opacity: 0.6 }]}
           accessibilityRole="button"
-          accessibilityLabel="Teach Krono by voice"
+          accessibilityLabel="Teach SANS by voice"
         >
           <Ionicons name="mic" size={22} color={colors.accent} />
         </Pressable>
@@ -280,7 +280,7 @@ function KnowledgeList({
           }
           ListEmptyComponent={
             <Text style={[type.bodySoft, { marginTop: space.lg }]}>
-              {query ? `Nothing called "${query}" yet. Tap the mic to tell Krono about it.` : "Nothing here yet — tap the mic and tell Krono about someone."}
+              {query ? `Nothing called "${query}" yet. Tap the mic to tell SANS about it.` : "Nothing here yet — tap the mic and tell SANS about someone."}
             </Text>
           }
           renderItem={({ item }) => (

@@ -1,12 +1,16 @@
-# Second Mind
+# SANS — Spoken Archive & Neural System
+
+A personal app, not a product. The repo, server paths and Android package
+still say `secondmind`, its working name.
 
 A voice-first personal knowledge graph. You open the app, talk, and forget
 about it. Everything else happens server-side.
 
 Two parts, both in this repo:
 
-- `backend/` — Django + Celery + Postgres/pgvector. Transcription and
-  (from Phase 1) the extraction pipeline.
+- `backend/` — Django + Celery + Postgres/pgvector. Transcription,
+  normalization, the knowledge base, Ask and Teach. The extraction pipeline
+  comes in Phase 1.
 - `mobile/` — the Expo app. Opens with the mic already live; an on-device
   SQLite outbox guarantees a thought survives a dead connection. See
   `mobile/README.md`.
@@ -29,18 +33,26 @@ That's why §"Accuracy" below matters more than it looks.
 
 ---
 
-## Current state — Phase 0
+## Current state — Phase 0 done, Ask and Teach running ahead of Phase 1
 
-Implemented, and verified end to end against live Deepgram over real HTTP:
+The app ships as **SANS** (sideloaded APK). It's in daily use on the
+shared server and the loop holds up: capture → transcript → fix → ask.
+87 backend tests pass.
+
+What a capture goes through today:
 
 ```
-POST /api/captures/  ->  spool audio  ->  transcribe  ->  raw transcript  ->  delete audio
+POST /api/captures/ -> spool audio -> transcribe (Deepgram) -> raw
+                    -> normalize (Gemini re-listens)        -> normalized
+                    -> embed note                           -> delete audio
 ```
 
-A 28-second capture went upload → `transcribed` in **2.7s**, a duplicate
-upload of the same id returned 200 without re-billing transcription, and
-seeded entities measurably corrected proper nouns on a re-run of identical
-audio (see "Accuracy").
+Early measurement: a 28-second capture went upload → `transcribed` in **2.7s**,
+a duplicate upload of the same id returned 200 without re-billing
+transcription, and seeded entities measurably corrected proper nouns on a
+re-run of identical audio (see "Accuracy").
+
+### Capture and transcription
 
 - Idempotent upload keyed on a **client-generated** UUID
 - Deepgram Nova-3 batch transcription behind a swappable provider interface
@@ -59,10 +71,78 @@ audio (see "Accuracy").
   indexed — so the shape is settled before Phase 1 fills it
 - `GET /api/graph/` returns circles-and-lines data, sized by mention count
 
-Not implemented, deliberately: **normalize, segment, extract, resolve,
-link, embed**. Those stages need to be written against two weeks of *your
-real transcripts*, not imagined ones. Their prompts are the part of this
-system most likely to be wrong if guessed at. See "Build order".
+### Fixing notes (the learning loop)
+
+- Three versions of every note: raw (Deepgram, immutable), normalized
+  (Gemini, re-runnable via `/renormalize/`), and **yours**. Your edit
+  always wins and nothing server-side overwrites it
+  (`capture/editing.py`)
+- Saving an edit proposes `CorrectionPair`s from the changed words. Names
+  come pre-ticked, ordinary words don't. Kept pairs are applied to every
+  future note, and their hit counts are tracked
+
+### Knowledge base
+
+- People, companies, places and projects as semantic nodes, with summary,
+  body, aliases, "often misheard as", and `part_of` links. Browse, search
+  and edit them in the app; search matches by sound ("starcom" finds Stracomm)
+- `manage.py load_knowledge` loads a structured JSON file (entities,
+  relations, speaker notes). It's the richer sibling of `seed_entities`.
+  The file is personal, so pipe it over stdin on the server; deploy never
+  ships it
+- `retrieval.py` picks the few entities a note plausibly mentions
+  (phonetic + fuzzy match on the draft, 1-hop neighbours, recently active,
+  embedding-related) so the normalize prompt stays the same size as the
+  knowledge base grows
+- **Teach by voice** (`teach.py`): say "Rahul is the new designer at
+  Stracomm", get back proposed changes, untick what's wrong, apply.
+  Nothing is written before apply, because a misheard name saved here
+  would become a keyterm. `Teaching` logs proposed against applied, which
+  is how you evaluate the teach prompt
+
+### Ask
+
+- `ask.py`: plan (search terms in English + Hinglish, date range) →
+  search four ways (Postgres full-text, note embeddings, entity sound-match,
+  time filter) → reciprocal rank fusion → answer only from that context,
+  citing notes as `[n]`. Multi-turn via `conversation_id`
+- Asked by voice in the app (`spoken.py`): one synchronous Gemini listen
+  briefed with your vocabulary and corrections, with Deepgram + romanize as
+  the fallback. Clip audio is never stored
+- Every question is logged (`Question`, with `spoken` flagged) as a free
+  eval set
+- Every question also records per-stage wall-clock `timings` (heard,
+  plan, search, answer). On prod (2026-10-19, 15 real questions) the
+  answer call was 82% of Ask time, almost entirely the model *thinking*:
+  8.5s median, 18.5s worst, no better answers. Answers now think at
+  `ASK_ANSWER_THINKING=low` (~2.1s median). The prompt also now lets
+  SANS advise from its own expertise. Facts about your life still come
+  only from your notes
+
+### Not built yet
+
+**Segment, extract, resolve, link.** Notes are embedded and searchable,
+but nothing yet splits a session into separate thoughts or extracts
+entities and edges from it automatically. Entities only come from you,
+through teach, the editor or `load_knowledge`. Mention counts update when
+a note names a known entity. `nightly_consolidation` is a stub. See
+"Build order".
+
+### Loose ends
+
+- `docker-compose.yml` (local) still runs gunicorn with the default 30s
+  timeout and no threads. Prod and shared got `--threads 4 --timeout 90`
+  for synchronous Ask/Teach, so a slow answer can be killed locally but
+  not in production
+- `expo-updates` is installed, but `app.json` has no EAS project or
+  updates URL, so **OTA does nothing**. Every app change ships as a new
+  APK (see "Deploying")
+- No eval harness yet. The `Question` and `Teaching` logs are piling up
+  data for one
+- The app still has separate tabs, each with its own mic (Capture, Ask,
+  Teach). The plan is a single voice button that works out from context
+  whether you're making a note, asking something or teaching a fact.
+  `spoken.py`, `ask.py` and `teach.py` are already UI-agnostic for that
 
 ---
 
@@ -87,7 +167,7 @@ cp backend/.env.example backend/.env
 docker compose up --build
 ```
 
-Tests (28, no network or API keys needed — the provider is stubbed):
+Tests (87, no network or API keys needed — Deepgram and Gemini are stubbed):
 
 ```bash
 cd backend && ./venv/bin/python manage.py test
@@ -111,8 +191,17 @@ cd mobile && npm install && npx expo run:android
 | GET | `/api/captures/list/` | the timeline, paginated 50/page |
 | GET | `/api/captures/health/` | pending / failed counts — poll this |
 | GET | `/api/captures/<uuid>/` | one capture with transcripts and segments |
+| PUT / DELETE | `/api/captures/<uuid>/transcript/` | save your edited version (returns suggested corrections) / drop it |
+| POST | `/api/captures/<uuid>/renormalize/` | re-run the Gemini pass |
 | GET | `/api/graph/?limit=500` | nodes + edges for the circles view |
 | GET | `/api/nodes/<uuid>/` | one node and everything edged to it |
+| GET / POST | `/api/vocabulary/` | entities used for biasing; add one |
+| PATCH / DELETE | `/api/vocabulary/<uuid>/` | |
+| GET / POST | `/api/corrections/` | wrong -> right pairs |
+| DELETE | `/api/corrections/<uuid>/` | |
+| GET | `/api/knowledge/` | the knowledge base, searchable (by sound too) |
+| GET / PATCH / DELETE | `/api/knowledge/<uuid>/` | one entry, its links and the notes mentioning it |
+| POST / DELETE | `/api/knowledge/<uuid>/links/<uuid>/` | connect / disconnect two entries |
 | POST | `/api/ask/` | `{question, conversation_id?}` -> answer with cited notes |
 | POST | `/api/ask/spoken/` | multipart `audio` (+ `conversation_id`): heard and answered in one request; `question` is what was heard |
 | POST | `/api/knowledge/teach/` | multipart `audio`: what was heard + proposed knowledge changes. Saves nothing |
@@ -205,24 +294,27 @@ Nothing is ever hard-deleted. Reprocessing writes new rows against a new
 
 ## Build order
 
-**Phase 0 — capture only.** Done. Now *use it for two weeks and build
-nothing.*
-
-That is not a pause, it's the highest-value step in the project. You get
-real audio to benchmark providers against, real transcripts to write the
-extractor against, your actual topics-per-session distribution, and honest
-evidence about whether you'll really talk to it at 4am. Every hour of
-extraction work done before this is work done against imagined data.
+**Phase 0 — capture.** Done, plus normalize, hand edits and corrections.
+The "use it for two weeks before building extraction" rule still holds.
+Real transcripts are what extraction gets written against, and every
+hour of extraction work before that is work against imagined data.
 
 **Phase 1 — understanding.** `segment` -> `extract` -> `resolve` -> `link`
 -> `embed`, the review inbox, node pages, and the eval harness (~40
 hand-labelled real transcripts, scored on every prompt change — without it
 the graph degrades silently and you will never know).
+*Partly in place:* note and entity embeddings, entity pages in the app, and
+`retrieval.match_text`, which resolve will reuse for mention → candidates.
+*Still to build:* segment, extract, resolve, link, the review inbox and
+the eval harness.
 
 **Phase 2 — retrieval.** Hybrid: BM25 over `tsvector` + vector kNN + graph
 expansion + temporal filter, then synthesis with citations. Never
 vector-only — proper nouns and jargon are exactly what embeddings are worst
 at, and exactly what you'll search for.
+*Mostly done, ahead of schedule:* Ask runs keyword, embedding, entity and
+time search with RRF and cited answers, by voice. It improves for free
+once extraction adds edges for graph expansion.
 
 **Phase 3 — consolidation.** The nightly job: recurring themes,
 contradictions with past decisions, and the highest-signal output of the
@@ -241,6 +333,22 @@ you decide it's time.
 ```bash
 cp backend/.env.example backend/.env    # fill it in
 ./deploy/deploy.sh root@<server-ip>
+```
+
+On a box that already runs another project's reverse proxy (how it runs
+today), use the shared compose file. Take a backup first whenever a
+migration ships:
+
+```bash
+ssh <server> 'cd /opt/secondmind/deploy && COMPOSE_FILE=docker-compose.shared.yml ./backup.sh'
+COMPOSE_FILE=docker-compose.shared.yml ./deploy/deploy.sh root@<server-ip>
+```
+
+The app ships as an APK, because OTA isn't wired:
+
+```bash
+cd mobile/android && ./gradlew assembleRelease   # skip prebuild --clean unless native deps changed
+./deploy/publish_apk.sh root@<server-ip>          # prints the private download link
 ```
 
 Hetzner CPX22 (2 vCPU / 4GB / 80GB, ~EUR 8/mo) is the target. 4GB is

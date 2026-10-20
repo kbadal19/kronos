@@ -6,7 +6,7 @@
  * nothing on the server ever overwrites it — so fixing a note is safe
  * even if you re-transcribe it afterwards.
  *
- * Saving an edit is also how Krono learns: the words you changed come
+ * Saving an edit is also how SANS learns: the words you changed come
  * back as suggestions, and the ones you keep are checked on every future
  * note. Names come pre-ticked; ordinary words don't, because "or -> aur"
  * is right in one sentence and wrong in the next.
@@ -31,7 +31,7 @@ import { Loading, Pill } from "../ui";
 
 const VERSION_LABEL: Record<TranscriptKind, string> = {
   edited: "Yours",
-  normalized: "Krono",
+  normalized: "SANS",
   raw: "Heard",
 };
 const VERSION_ORDER: TranscriptKind[] = ["edited", "normalized", "raw"];
@@ -123,7 +123,7 @@ export default function NoteScreen({
     if (!pairs.length) return;
     try {
       await addCorrections(pairs);
-      setFlash(`Krono will remember ${pairs.length} fix${pairs.length === 1 ? "" : "es"}`);
+      setFlash(`SANS will remember ${pairs.length} fix${pairs.length === 1 ? "" : "es"}`);
     } catch (err) {
       setFlash(getErrorMessage(err));
     }
@@ -135,7 +135,7 @@ export default function NoteScreen({
     try {
       show(await revertEdit(note.id));
       onChanged();
-      setFlash("Back to Krono's version");
+      setFlash("Back to SANS's version");
     } catch (err) {
       setFlash(getErrorMessage(err));
     } finally {
